@@ -13,5 +13,6 @@ class SpotifyRouter {
         POST("/token", spotifyHandler::getAccessToken)
         GET("/user", spotifyHandler::getUser)
         POST("/playlist", spotifyHandler::createPlaylist)
+        GET("/playlist/{id}", spotifyHandler::getPlaylist)
     }
 }

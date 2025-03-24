@@ -1,22 +1,21 @@
 package org.omsk.aispotifyplaylistgenerator.clients
 
+import org.omsk.aispotifyplaylistgenerator.clients.endpoints.SpotifyEndpoint
 import org.omsk.aispotifyplaylistgenerator.configs.SpotifyWebClientConfig
 import org.omsk.aispotifyplaylistgenerator.models.api.ApiError
 import org.omsk.aispotifyplaylistgenerator.models.api.ApiResponse
-import org.omsk.aispotifyplaylistgenerator.models.spotify.request.AccessTokenRequest
+import org.omsk.aispotifyplaylistgenerator.models.spotify.Playlist
+import org.omsk.aispotifyplaylistgenerator.models.spotify.SpotifyApiError
 import org.omsk.aispotifyplaylistgenerator.models.spotify.request.CreatePlaylistRequest
-import org.omsk.aispotifyplaylistgenerator.models.spotify.response.AccessToken
-import org.omsk.aispotifyplaylistgenerator.models.spotify.response.CreatePlaylistResponse
-import org.omsk.aispotifyplaylistgenerator.models.spotify.response.SpotifyUserDetail
+import org.omsk.aispotifyplaylistgenerator.models.spotify.response.*
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
-import org.springframework.http.HttpStatusCode
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.BodyInserters
+import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.WebClientResponseException
-import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.util.*
 
@@ -30,12 +29,7 @@ class SpotifyApiClient(
     private val spotifyClient = spotifyWebClientConfig.spotifyClient()
     private val spotifyAuthClient = spotifyWebClientConfig.spotifyAuthClient()
 
-    fun getAccessToken(code: String): Mono<AccessToken> {
-        val body = AccessTokenRequest(
-            code = code,
-            redirect_uri = redirectUri,
-        )
-
+    fun getAccessToken(code: String): Mono<ApiResponse<AccessToken>> {
         val url = "api/token"
         val authHeader = "Basic " + Base64.getEncoder().encodeToString("$clientId:$clientSecret".toByteArray())
 
@@ -49,92 +43,123 @@ class SpotifyApiClient(
                     .with("client_id", clientId)
                     .with("client_secret", clientSecret)
             )
-            .retrieve()
-            .onStatus(HttpStatusCode::isError) { response ->
-                response.bodyToMono(String::class.java).flatMap { errorBody ->
-                    Mono.error(RuntimeException("Spotify API Error: $errorBody"))
-                }
+            .exchangeToMono {
+                handleSpotifyResponse(it, AccessToken::class.java)
             }
-            .bodyToMono(AccessToken::class.java)
+            .onErrorResume {
+                handleSpotifyError<AccessToken>(it, "Error fetching access token")
+            }
     }
 
-    fun createPlaylist(accessToken: String, userId: String, playlistName: String): Mono<String> {
-        return spotifyClient.post()
-            .uri("users/$userId/playlists")
-            .header("Authorization", "Bearer $accessToken")
-            .body(Mono.just(mapOf("name" to playlistName)), Map::class.java)
-            .retrieve()
-            .bodyToMono(String::class.java)
-    }
-
-    fun getTracks(accessToken: String, trackIds: List<String>): Flux<String> {
+    fun getUserProfile(accessToken: String): Mono<ApiResponse<SpotifyUserDetail>> {
         return spotifyClient.get()
-            .uri {
-                it.path("tracks")
-                    .queryParam("ids", trackIds.joinToString(","))
-                    .build()
-            }
-            .retrieve()
-            .bodyToFlux(String::class.java)
-    }
-
-    fun getUserProfile(accessToken: String): Mono<SpotifyUserDetail> {
-        return spotifyClient.get()
-            .uri("me")
+            .uri(SpotifyEndpoint.ME)
             .header("Authorization", "Bearer $accessToken")
-            .retrieve()
-            .onStatus(HttpStatusCode::isError) { response ->
-                response.bodyToMono(String::class.java).flatMap { body ->
-                    Mono.error(RuntimeException("Failed to fetch user profile: $body"))
-                }
+            .exchangeToMono {
+                handleSpotifyResponse(it, SpotifyUserDetail::class.java)
             }
-            .onStatus({ status -> status == HttpStatus.UNSUPPORTED_MEDIA_TYPE }) { response ->
-                response.bodyToMono(String::class.java).flatMap { body ->
-                    Mono.error(RuntimeException("Unsupported media type: $body"))
-                }
-            }
-            .bodyToMono(SpotifyUserDetail::class.java)
-            .onErrorResume(WebClientResponseException::class.java) {
-                if (it.statusCode.is4xxClientError || it.statusCode.is5xxServerError) {
-                    Mono.error(RuntimeException("Failed to fetch user profile: ${it.responseBodyAsString}"))
-                } else {
-                    Mono.error(it)
-                }
+            .onErrorResume {
+                handleSpotifyError<SpotifyUserDetail>(it, "Error fetching user profile")
             }
     }
 
     fun createPlaylist(playlist: CreatePlaylistRequest, userId: String, accessToken: String): Mono<ApiResponse<CreatePlaylistResponse>> {
+        val uri = SpotifyEndpoint.USER_PLAYLISTS.replace(SpotifyEndpoint.USER_ID_PLACEHOLDER, userId)
+
         return spotifyClient.post()
-            .uri("users/$userId/playlists")
+            .uri(uri)
             .headers {
                 it.contentType = MediaType.APPLICATION_JSON
                 it.setBearerAuth(accessToken)
             }
             .body(BodyInserters.fromValue(mapOf(
                 "name" to playlist.name,
-                "description" to playlist.description,
                 "public" to playlist.public
             )))
-            .exchangeToMono { response ->
-                if (response.statusCode().is2xxSuccessful()) {
-                    response.bodyToMono(CreatePlaylistResponse::class.java)
-                        .map { ApiResponse(it, null) }
-                } else {
-                    response.bodyToMono(String::class.java)
-                        .map { errorBody ->
-                            ApiResponse<CreatePlaylistResponse>(
-                                null,
-                                ApiError("Spotify error: $errorBody", response.statusCode().value())
-                            )
-                        }
-                }
+            .exchangeToMono {
+                handleSpotifyResponse(it, CreatePlaylistResponse::class.java)
+            }
+            .onErrorResume {
+                handleSpotifyError<CreatePlaylistResponse>(it, "Error creating playlist")
+            }
+    }
+
+    fun searchTracks(query: String, tracksAmount: Short, accessToken: String): Mono<ApiResponse<SpotifySearchTracksResponse>> {
+        val q = when {
+            query.length <= 250 -> query
+            else -> {
+                val lastCommaIndex = query.substring(0, 250).lastIndexOf(",")
+                if (lastCommaIndex > 0) query.substring(0, lastCommaIndex) else query.substring(0, 250)
+            }
+        }
+
+        return spotifyClient.get()
+            .uri {
+                it.path("search")
+                    .queryParam("q", q)
+                    .queryParam("type", "track")
+                    .queryParam("limit", tracksAmount)
+                    .build()
+            }
+            .headers { it.setBearerAuth(accessToken) }
+            .exchangeToMono {
+                handleSpotifyResponse(it, SpotifySearchTracksResponse::class.java)
+            }
+            .onErrorResume {
+                handleSpotifyError<SpotifySearchTracksResponse>(it, "Error searching tracks")
+            }
+    }
+
+    fun addTracksToPlaylist(playlistId: String, trackIds: List<String>, accessToken: String): Mono<String> {
+        val spotifyTracksUris = trackIds.map { "spotify:track:$it" }
+        val uri = SpotifyEndpoint.PLAYLIST_TRACKS.replace(SpotifyEndpoint.PLAYLIST_ID_PLACEHOLDER, playlistId)
+        return spotifyClient.post()
+            .uri(uri)
+            .headers {
+                it.contentType = MediaType.APPLICATION_JSON
+                it.setBearerAuth(accessToken)
+            }
+            .body(BodyInserters.fromValue(mapOf(
+                "uris" to spotifyTracksUris,
+                "position" to 0
+            )))
+            .retrieve()
+            .bodyToMono(String::class.java)
+    }
+
+    fun getPlaylist(playlistId: String, accessToken: String): Mono<ApiResponse<Playlist>> {
+        val uri = SpotifyEndpoint.PLAYLIST.replace(SpotifyEndpoint.PLAYLIST_ID_PLACEHOLDER, playlistId)
+        return spotifyClient.get()
+            .uri(uri)
+            .headers { it.setBearerAuth(accessToken) }
+            .exchangeToMono {
+                handleSpotifyResponse(it, Playlist::class.java)
             }
             .onErrorResume { e ->
-                val errorMessage = e.message ?: "Unknown error"
-                Mono.just(ApiResponse(
-                    null,
-                    ApiError(errorMessage, HttpStatus.INTERNAL_SERVER_ERROR.value())
-                ))
+                handleSpotifyError<Playlist>(e, "Error fetching playlist")
             }
+    }
+
+    private fun <T> handleSpotifyResponse(response: ClientResponse, responseType: Class<T>): Mono<ApiResponse<T>> {
+        return if (response.statusCode().is2xxSuccessful) {
+            response.bodyToMono(responseType)
+                .map { ApiResponse(it, null) }
+        } else {
+            response.bodyToMono(SpotifyApiError::class.java)
+                .map { spotifyError ->
+                    ApiResponse(
+                        null,
+                        ApiError("Spotify error: ${spotifyError.error.message}", spotifyError.error.status)
+                    )
+                }
+        }
+    }
+
+    private fun <T> handleSpotifyError(e: Throwable, message: String): Mono<ApiResponse<T>> {
+        val errorMessage = when (e) {
+            is WebClientResponseException -> "Spotify API error: ${e.responseBodyAsString} (Status: ${e.statusCode.value()})"
+            else -> "$message: ${e.message}"
+        }
+        return Mono.just(ApiResponse<T>(null, ApiError(errorMessage, HttpStatus.INTERNAL_SERVER_ERROR.value())))
     }
 }

@@ -6,7 +6,7 @@ import org.omsk.aispotifyplaylistgenerator.models.spotify.Tracks
 
 data class CreatePlaylistResponse(
     @JsonProperty("collaborative") val collaborative: Boolean,
-    @JsonProperty("description") val description: String,
+    @JsonProperty("description") val description: String?,
     @JsonProperty("external_urls") val externalUrls: ExternalUrls,
     @JsonProperty("followers") val followers: Followers,
     @JsonProperty("href") val href: String,

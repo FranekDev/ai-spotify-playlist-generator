@@ -1,6 +1,8 @@
 package org.omsk.aispotifyplaylistgenerator.handlers
 
 import org.omsk.aispotifyplaylistgenerator.clients.SpotifyApiClient
+import org.omsk.aispotifyplaylistgenerator.models.api.ApiError
+import org.omsk.aispotifyplaylistgenerator.models.api.ApiResponse
 import org.omsk.aispotifyplaylistgenerator.models.spotify.request.CreatePlaylistRequest
 import org.omsk.aispotifyplaylistgenerator.security.JwtUtil
 import org.omsk.aispotifyplaylistgenerator.services.SpotifyService
@@ -27,18 +29,30 @@ class SpotifyHandler(
             .flatMap { tokenRequest ->
                 spotifyApiClient.getAccessToken(tokenRequest.code)
                     .flatMap { accessToken ->
-                        val token = jwtUtil.generateToken(accessToken.accessToken, 60 * 60)
-                        val cookie = ResponseCookie.from("jwt_token", token)
-                            .httpOnly(true)
-                            .secure(false)
-                            .path("/")
-                            .maxAge(60 * 60)
-                            .sameSite("Lax")
-                            .build()
+                        if (accessToken.error != null) {
+                            return@flatMap ServerResponse.badRequest()
+                                .bodyValue(ApiResponse<String>(null, accessToken.error))
+                        } else {
+                            val token = accessToken.data?.let { jwtUtil.generateToken(it.accessToken, 60 * 60) }
+                            val cookie = token?.let {
+                                ResponseCookie.from("jwt_token", it)
+                                    .httpOnly(true)
+                                    .secure(false)
+                                    .path("/")
+                                    .maxAge(60 * 60)
+                                    .sameSite("Lax")
+                                    .build()
+                            }
 
-                        ServerResponse.ok()
-                            .cookie(cookie)
-                            .bodyValue(mapOf("message" to "Successfully authenticated"))
+                            if (cookie != null) {
+                                ServerResponse.ok()
+                                    .cookie(cookie)
+                                    .bodyValue(mapOf("message" to "Successfully authenticated"))
+                            }
+                            else {
+                                ServerResponse.badRequest().bodyValue("Failed to generate token")
+                            }
+                        }
                     }
             }
             .switchIfEmpty(ServerResponse.badRequest().bodyValue("Invalid request body"))
@@ -56,12 +70,37 @@ class SpotifyHandler(
     fun createPlaylist(request: ServerRequest): Mono<ServerResponse> {
         val spotifyAccessToken = getSpotifyAccessToken(request.headers())
 
-        val playlist = request.bodyToMono(CreatePlaylistRequest::class.java)
+        return request.bodyToMono(CreatePlaylistRequest::class.java)
             .flatMap { playlistRequest ->
                 spotifyService.createPlaylist(playlistRequest, spotifyAccessToken)
-            }
+                    .flatMap { createdPlaylist ->
+                        if (createdPlaylist.error != null) {
+                            return@flatMap ServerResponse.badRequest()
+                                .bodyValue(ApiResponse<String>(null, createdPlaylist.error))
+                        }
 
-        return playlist.flatMap { ServerResponse.ok().bodyValue(it) }
+                        val playlistId = createdPlaylist.data?.id
+                        if (playlistId == null) {
+                            return@flatMap ServerResponse.badRequest()
+                                .bodyValue(ApiResponse<Any>(null, ApiError("No playlist ID found", 400)))
+                        }
+
+                        spotifyService.getTracks(playlistRequest.tracksAmount, playlistRequest.description)
+                            .flatMap { tracksData ->
+                                spotifyService.addTracksToPlaylist(playlistId, tracksData, playlistRequest.tracksAmount, spotifyAccessToken)
+                                    .flatMap { _ -> ServerResponse.ok().bodyValue(createdPlaylist) }
+                            }
+                    }
+            }
+    }
+
+    fun getPlaylist(request: ServerRequest): Mono<ServerResponse> {
+        val spotifyAccessToken = getSpotifyAccessToken(request.headers())
+
+        return spotifyApiClient.getPlaylist(request.pathVariable("id"), spotifyAccessToken)
+            .flatMap { playlist ->
+                ServerResponse.ok().bodyValue(playlist)
+            }
     }
 
     private fun getSpotifyAccessToken(headers: ServerRequest.Headers): String {
