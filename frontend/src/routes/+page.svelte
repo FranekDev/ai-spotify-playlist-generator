@@ -6,7 +6,7 @@
 </script>
 
 {#if page.data.user}
-  <div class="w-full max-w-2xl mx-auto">
+  <div class="w-full max-w-2xl mx-auto flex flex-col gap-4">
     <SpotifyUser user={page.data.user} />
     <CreatePlaylist data={page.data.form} />
   </div>

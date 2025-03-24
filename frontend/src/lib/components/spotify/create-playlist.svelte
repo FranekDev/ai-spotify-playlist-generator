@@ -16,6 +16,8 @@
   import { enhance } from "$app/forms";
   import type { ApiError } from "$lib/types/api/api-error";
   import { toast } from "svelte-sonner";
+  import Button from "../ui/button/button.svelte";
+  import { LoaderCircle } from "@lucide/svelte";
 
   type Data = {
     data: SuperValidated<Infer<CreatePlaylistSchema>>;
@@ -25,13 +27,10 @@
     validators: zodClient(createPlaylistSchema),
   });
 
-  const { form: formData, submitting, errors } = form;
+  const { form: formData } = form;
 
   const placeholder = "Tell me about your favorite music, what do you like?";
-
-  // $effect(() => {
-  //   console.log("submitting", $submitting);
-  // });
+  let submit = $state(false);
 </script>
 
 <form
@@ -39,7 +38,9 @@
   class="space-y-6"
   action="?/createPlaylist"
   use:enhance={() => {
+    submit = true;
     return async ({ result, update }) => {
+      submit = false;
       if (result.type === "failure") {
         const formData = result.data;
 
@@ -64,7 +65,7 @@
         <Input
           {...attrs}
           bind:value={$formData.name}
-          class="mt-1 w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-lime-400 focus:ring focus:ring-lime-200 focus:ring-opacity-50"
+          class="mt-1 w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-spotify focus:ring focus:ring-lime-200 focus:ring-opacity-50"
           placeholder="My Awesome Playlist"
         />
         <Form.FieldErrors class="text-xs text-red-500 mt-1" />
@@ -74,14 +75,14 @@
     <Form.Field {form} name="description">
       <Form.Control let:attrs>
         <Form.Label class="text-sm font-medium text-zinc-700"
-          >Description</Form.Label
+          >What playlist should We create for You?</Form.Label
         >
         <Textarea
           {...attrs}
           rows={5}
           {placeholder}
           bind:value={$formData.description}
-          class="mt-1 w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-lime-400 focus:ring focus:ring-lime-200 focus:ring-opacity-50"
+          class="mt-1 w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-spotify focus:ring focus:ring-lime-200 focus:ring-opacity-50"
         />
         <Form.FieldErrors class="text-xs text-red-500 mt-1" />
       </Form.Control>
@@ -101,7 +102,7 @@
                 bind:value={$formData.tracksAmount}
                 min={1}
                 max={100}
-                class="w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-lime-400 focus:ring focus:ring-lime-200 focus:ring-opacity-50"
+                class="w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-spotify focus:ring focus:ring-lime-200 focus:ring-opacity-50"
               />
             </div>
             <Form.FieldErrors class="text-xs text-red-500" />
@@ -119,6 +120,7 @@
               {...attrs}
               bind:checked={$formData.public}
               aria-label="Make playlist public"
+              class="data-[state=checked]:bg-spotify"
             />
           </div>
           <Form.FieldErrors class="text-xs text-red-500" />
@@ -127,12 +129,24 @@
     </div>
   </div>
 
-  <div class="flex justify-end pt-2">
-    <Form.Button
-      class="rounded-md bg-lime-400 px-6 py-2 text-sm font-medium text-zinc-900 hover:bg-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-500 focus:ring-offset-2 transition-colors"
-      disabled={$submitting}
-    >
-      {$submitting ? "Creating..." : "Generate Playlist"}
-    </Form.Button>
+  <div class="flex justify-end">
+    <div class="w-fit min-w-[180px]">
+      {#if submit}
+        <Button
+          class="w-full rounded-md bg-spotify px-6 py-2 text-sm font-medium text-zinc-900 hover:bg-spotify-dark focus:outline-none focus:ring-2 focus:ring-spotify-dark focus:ring-offset-2 transition-colors"
+          disabled={true}
+        >
+          <LoaderCircle class="mr-2 h-4 w-4 animate-spin" />
+          Creating...
+        </Button>
+      {:else}
+        <Form.Button
+          class="w-full rounded-md bg-spotify px-6 py-2 text-sm font-medium text-zinc-900 hover:bg-spotify-dark focus:outline-none focus:ring-2 focus:ring-spotify-dark focus:ring-offset-2 transition-colors"
+          disabled={submit}
+        >
+          {submit ? "Creating..." : "Generate Playlist"}
+        </Form.Button>
+      {/if}
+    </div>
   </div>
 </form>

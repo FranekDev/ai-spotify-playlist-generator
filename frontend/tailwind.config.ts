@@ -59,6 +59,8 @@ const config: Config = {
 					border: "hsl(var(--sidebar-border))",
 					ring: "hsl(var(--sidebar-ring))",
         		},
+				spotify: "#1ed760",
+				"spotify-dark": "#1db954",
 			},
 			borderRadius: {
 				xl: "calc(var(--radius) + 4px)",

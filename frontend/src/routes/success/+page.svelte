@@ -1,8 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import Skeleton from "$lib/components/ui/skeleton/skeleton.svelte";
-
-  let spotifyCode = $state<null | string>(null);
+  import LoadingSpinner from "$lib/components/loading-spinner.svelte";
+  import { toast } from "svelte-sonner";
 
   const getCodeFromUrl = () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -12,7 +11,6 @@
   $effect(() => {
     const code = getCodeFromUrl();
     if (code) {
-      spotifyCode = code;
       sendCode(code);
     }
   });
@@ -28,15 +26,14 @@
     });
 
     if (response.ok) {
-      const data = await response.json();
       goto("/");
     } else {
-      console.error("Failed to send code");
+      toast.error("Failed to send code");
     }
   }
 </script>
 
-<main>
-  <h1>Redirecting</h1>
-  <Skeleton class="w-full max-w-2xl mx-auto h-36" />
+<main class="flex gap-4">
+  <LoadingSpinner />
+  <p>Redirecting</p>
 </main>
