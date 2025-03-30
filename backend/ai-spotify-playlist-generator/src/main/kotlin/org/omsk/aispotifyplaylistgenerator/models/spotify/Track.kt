@@ -1,12 +1,11 @@
 package org.omsk.aispotifyplaylistgenerator.models.spotify
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import org.omsk.aispotifyplaylistgenerator.models.spotify.response.*
 
 data class Track(
     @JsonProperty("album") val album: Album,
     @JsonProperty("artists") val artists: List<Artist>,
-    @JsonProperty("available_markets") val availableMarkets: List<String>,
+    @JsonProperty("available_markets") val availableMarkets: List<String>?,
     @JsonProperty("disc_number") val discNumber: Int,
     @JsonProperty("duration_ms") val durationMs: Int,
     @JsonProperty("explicit") val explicit: Boolean,

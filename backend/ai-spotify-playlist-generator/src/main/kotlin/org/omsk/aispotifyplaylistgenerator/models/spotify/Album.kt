@@ -7,7 +7,7 @@ import org.omsk.aispotifyplaylistgenerator.models.spotify.response.Image
 data class Album(
     @JsonProperty("album_type") val albumType: String,
     @JsonProperty("total_tracks") val totalTracks: Int,
-    @JsonProperty("available_markets") val availableMarkets: List<String>,
+    @JsonProperty("available_markets") val availableMarkets: List<String>?,
     @JsonProperty("external_urls") val externalUrls: ExternalUrls,
     @JsonProperty("href") val href: String,
     @JsonProperty("id") val id: String,

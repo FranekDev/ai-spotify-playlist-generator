@@ -9,7 +9,6 @@ import org.omsk.aispotifyplaylistgenerator.models.spotify.SpotifyApiError
 import org.omsk.aispotifyplaylistgenerator.models.spotify.request.CreatePlaylistRequest
 import org.omsk.aispotifyplaylistgenerator.models.spotify.response.*
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
@@ -17,11 +16,10 @@ import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import reactor.core.publisher.Mono
-import java.util.*
 
 @Component
 class SpotifyApiClient(
-    private val spotifyWebClientConfig: SpotifyWebClientConfig,
+    spotifyWebClientConfig: SpotifyWebClientConfig,
     @Value("\${spring.security.oauth2.client.registration.spotify.clientId}") private val clientId: String,
     @Value("\${spring.security.oauth2.client.registration.spotify.clientSecret}") private val clientSecret: String,
     @Value("\${spring.security.oauth2.client.registration.spotify.redirectUri}") private val redirectUri: String
@@ -30,12 +28,12 @@ class SpotifyApiClient(
     private val spotifyAuthClient = spotifyWebClientConfig.spotifyAuthClient()
 
     fun getAccessToken(code: String): Mono<ApiResponse<AccessToken>> {
-        val url = "api/token"
-        val authHeader = "Basic " + Base64.getEncoder().encodeToString("$clientId:$clientSecret".toByteArray())
 
         return spotifyAuthClient.post()
-            .uri(url)
-            .header(HttpHeaders.AUTHORIZATION, authHeader)
+            .uri(SpotifyEndpoint.API_TOKEN)
+            .headers {
+                it.setBasicAuth(clientId, clientSecret)
+            }
             .body(
                 BodyInserters.fromFormData("grant_type", "authorization_code")
                     .with("code", code)
@@ -47,7 +45,7 @@ class SpotifyApiClient(
                 handleSpotifyResponse(it, AccessToken::class.java)
             }
             .onErrorResume {
-                handleSpotifyError<AccessToken>(it, "Error fetching access token")
+                handleSpotifyError(it, "Error fetching access token")
             }
     }
 
@@ -59,7 +57,7 @@ class SpotifyApiClient(
                 handleSpotifyResponse(it, SpotifyUserDetail::class.java)
             }
             .onErrorResume {
-                handleSpotifyError<SpotifyUserDetail>(it, "Error fetching user profile")
+                handleSpotifyError(it, "Error fetching user profile")
             }
     }
 
@@ -80,25 +78,30 @@ class SpotifyApiClient(
                 handleSpotifyResponse(it, CreatePlaylistResponse::class.java)
             }
             .onErrorResume {
-                handleSpotifyError<CreatePlaylistResponse>(it, "Error creating playlist")
+                handleSpotifyError(it, "Error creating playlist")
             }
     }
 
-    fun searchTracks(query: String, tracksAmount: Short, accessToken: String): Mono<ApiResponse<SpotifySearchTracksResponse>> {
+    fun searchTracks(query: String, tracksAmount: Short, accessToken: String, maxQueryLength: Int = 250): Mono<ApiResponse<SpotifySearchTracksResponse>> {
         val q = when {
-            query.length <= 250 -> query
+            query.length <= maxQueryLength -> query
             else -> {
-                val lastCommaIndex = query.substring(0, 250).lastIndexOf(",")
-                if (lastCommaIndex > 0) query.substring(0, lastCommaIndex) else query.substring(0, 250)
+                val lastCommaIndex = query.substring(0, maxQueryLength).lastIndexOf(",")
+                if (lastCommaIndex > 0) query.substring(0, lastCommaIndex) else query.substring(0, maxQueryLength)
             }
         }
+
+        val encodedQuery = q
+            .replace("track:", "track%3A")
+            .replace("artist:", "artist%3A")
 
         return spotifyClient.get()
             .uri {
                 it.path("search")
-                    .queryParam("q", q)
+                    .queryParam("q", encodedQuery)
                     .queryParam("type", "track")
                     .queryParam("limit", tracksAmount)
+                    .queryParam("market", "PL")
                     .build()
             }
             .headers { it.setBearerAuth(accessToken) }
@@ -106,7 +109,7 @@ class SpotifyApiClient(
                 handleSpotifyResponse(it, SpotifySearchTracksResponse::class.java)
             }
             .onErrorResume {
-                handleSpotifyError<SpotifySearchTracksResponse>(it, "Error searching tracks")
+                handleSpotifyError(it, "Error searching tracks")
             }
     }
 
@@ -136,7 +139,7 @@ class SpotifyApiClient(
                 handleSpotifyResponse(it, Playlist::class.java)
             }
             .onErrorResume { e ->
-                handleSpotifyError<Playlist>(e, "Error fetching playlist")
+                handleSpotifyError(e, "Error fetching playlist")
             }
     }
 

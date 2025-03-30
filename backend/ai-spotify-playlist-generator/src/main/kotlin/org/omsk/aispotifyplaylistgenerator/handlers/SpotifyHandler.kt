@@ -1,17 +1,18 @@
 package org.omsk.aispotifyplaylistgenerator.handlers
 
 import org.omsk.aispotifyplaylistgenerator.clients.SpotifyApiClient
+import org.omsk.aispotifyplaylistgenerator.models.ai.Tracks
 import org.omsk.aispotifyplaylistgenerator.models.api.ApiError
 import org.omsk.aispotifyplaylistgenerator.models.api.ApiResponse
 import org.omsk.aispotifyplaylistgenerator.models.spotify.request.CreatePlaylistRequest
 import org.omsk.aispotifyplaylistgenerator.security.JwtUtil
 import org.omsk.aispotifyplaylistgenerator.services.SpotifyService
-import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.http.HttpStatus
+import org.springframework.http.HttpStatusCode
 import org.springframework.http.ResponseCookie
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.server.ServerRequest
 import org.springframework.web.reactive.function.server.ServerResponse
-import org.springframework.web.server.WebExceptionHandler
 import reactor.core.publisher.Mono
 
 data class TokenRequest(val code: String)
@@ -20,8 +21,7 @@ data class TokenRequest(val code: String)
 class SpotifyHandler(
     private val spotifyService: SpotifyService,
     private val spotifyApiClient: SpotifyApiClient,
-    private val jwtUtil: JwtUtil,
-    @Qualifier("responseStatusExceptionHandler") private val status: WebExceptionHandler
+    private val jwtUtil: JwtUtil
 ) {
 
     fun getAccessToken(request: ServerRequest): Mono<ServerResponse> {
@@ -72,24 +72,50 @@ class SpotifyHandler(
 
         return request.bodyToMono(CreatePlaylistRequest::class.java)
             .flatMap { playlistRequest ->
-                spotifyService.createPlaylist(playlistRequest, spotifyAccessToken)
-                    .flatMap { createdPlaylist ->
-                        if (createdPlaylist.error != null) {
+                spotifyService.getTracks(playlistRequest.tracksAmount, playlistRequest.description)
+                    .flatMap { tracksData ->
+                        if (tracksData.tracks.isEmpty()) {
                             return@flatMap ServerResponse.badRequest()
-                                .bodyValue(ApiResponse<String>(null, createdPlaylist.error))
+                                .bodyValue(ApiResponse<Any>(
+                                    null,
+                                    ApiError("No tracks found matching the description", HttpStatus.BAD_REQUEST.value())
+                                ))
                         }
 
-                        val playlistId = createdPlaylist.data?.id
-                        if (playlistId == null) {
-                            return@flatMap ServerResponse.badRequest()
-                                .bodyValue(ApiResponse<Any>(null, ApiError("No playlist ID found", 400)))
-                        }
+                        createPlaylistWithTracks(playlistRequest, tracksData, spotifyAccessToken)
+                    }
+                    .onErrorResume { error ->
+                        ServerResponse.badRequest()
+                            .bodyValue(ApiResponse<Any>(
+                                null,
+                                ApiError("Error generating tracks: ${error.message}", 400)
+                            ))
+                    }
+            }
+    }
 
-                        spotifyService.getTracks(playlistRequest.tracksAmount, playlistRequest.description)
-                            .flatMap { tracksData ->
-                                spotifyService.addTracksToPlaylist(playlistId, tracksData, playlistRequest.tracksAmount, spotifyAccessToken)
-                                    .flatMap { _ -> ServerResponse.ok().bodyValue(createdPlaylist) }
-                            }
+    private fun createPlaylistWithTracks(playlistRequest: CreatePlaylistRequest, tracksData: Tracks, spotifyAccessToken: String): Mono<ServerResponse> {
+        return spotifyService.createPlaylist(playlistRequest, spotifyAccessToken)
+            .flatMap { createdPlaylist ->
+                if (createdPlaylist.error != null) {
+                    return@flatMap ServerResponse.badRequest()
+                        .bodyValue(ApiResponse<String>(null, createdPlaylist.error))
+                }
+
+                val playlistId = createdPlaylist.data?.id
+                if (playlistId == null) {
+                    return@flatMap ServerResponse.badRequest()
+                        .bodyValue(ApiResponse<Any>(null, ApiError("No playlist ID found", HttpStatus.BAD_REQUEST.value())))
+                }
+
+                spotifyService.addTracksToPlaylist(playlistId, tracksData, playlistRequest.tracksAmount, spotifyAccessToken)
+                    .flatMap { addTracksResponse ->
+                        if (addTracksResponse.error != null) {
+                            ServerResponse.badRequest()
+                                .bodyValue(ApiResponse<Any>(null, addTracksResponse.error))
+                        } else {
+                            ServerResponse.ok().bodyValue(createdPlaylist)
+                        }
                     }
             }
     }

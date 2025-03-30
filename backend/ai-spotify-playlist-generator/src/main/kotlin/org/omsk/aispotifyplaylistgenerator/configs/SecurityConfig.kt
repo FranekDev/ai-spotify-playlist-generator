@@ -27,11 +27,8 @@ class SecurityConfig(
         return http {
             authorizeExchange {
                 authorize(anyExchange, permitAll)
-                //authorize(anyExchange, authenticated)
             }
-//            oauth2ResourceServer {
-//                opaqueToken { }
-//            }
+
             csrf { disable() }
 
             addFilterBefore(jwtAuthenticationFilter, SecurityWebFiltersOrder.AUTHENTICATION)

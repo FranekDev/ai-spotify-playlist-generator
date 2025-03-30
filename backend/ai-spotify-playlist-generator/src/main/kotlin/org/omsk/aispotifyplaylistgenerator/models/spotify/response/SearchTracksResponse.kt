@@ -24,7 +24,7 @@ data class TrackItem(
     val album: Album,
     val artists: List<Artist>,
     @JsonProperty("available_markets")
-    val availableMarkets: List<String>,
+    val availableMarkets: List<String>?,
     @JsonProperty("disc_number")
     val discNumber: Int,
     @JsonProperty("duration_ms")

@@ -8,4 +8,6 @@ object SpotifyEndpoint {
 
     const val USER_ID_PLACEHOLDER = "{user_id}"
     const val PLAYLIST_ID_PLACEHOLDER = "{playlist_id}"
+
+    const val API_TOKEN = "api/token"
 }
