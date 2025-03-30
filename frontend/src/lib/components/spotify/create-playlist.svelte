@@ -67,6 +67,7 @@
           bind:value={$formData.name}
           class="mt-1 w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-spotify focus:ring focus:ring-lime-200 focus:ring-opacity-50"
           placeholder="My Awesome Playlist"
+          disabled={submit}
         />
         <Form.FieldErrors class="text-xs text-red-500 mt-1" />
       </Form.Control>
@@ -82,6 +83,7 @@
           rows={5}
           {placeholder}
           bind:value={$formData.description}
+          disabled={submit}
           class="mt-1 w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-spotify focus:ring focus:ring-lime-200 focus:ring-opacity-50"
         />
         <Form.FieldErrors class="text-xs text-red-500 mt-1" />
@@ -102,6 +104,7 @@
                 bind:value={$formData.tracksAmount}
                 min={1}
                 max={100}
+                disabled={submit}
                 class="w-full rounded-md border border-zinc-300 px-4 py-2 focus:border-spotify focus:ring focus:ring-lime-200 focus:ring-opacity-50"
               />
             </div>
@@ -121,6 +124,7 @@
               bind:checked={$formData.public}
               aria-label="Make playlist public"
               class="data-[state=checked]:bg-spotify"
+              disabled={submit}
             />
           </div>
           <Form.FieldErrors class="text-xs text-red-500" />
