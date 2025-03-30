@@ -2,7 +2,6 @@
   import { apiClient } from "$lib/clients/api-client";
   import type { SpotifyUserDetail } from "$lib/types/spotify/spotify-user-detail";
   import type { User } from "$lib/types/user";
-  import LoadingSpinner from "../loading-spinner.svelte";
 
   let { user }: { user: User } = $props();
   let spotifyUser = $state<SpotifyUserDetail | null>(null);
